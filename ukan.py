@@ -11,59 +11,67 @@ from kan import KANLinear, KAN
 
 
 class KANLayer(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
+    def __init__(
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        drop=0.0,
+        no_kan=False,
+    ):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         self.dim = in_features
-        
-        grid_size=5
-        spline_order=3
-        scale_noise=0.1
-        scale_base=1.0
-        scale_spline=1.0
-        base_activation=torch.nn.SiLU
-        grid_eps=0.02
-        grid_range=[-1, 1]
+
+        grid_size = 5
+        spline_order = 3
+        scale_noise = 0.1
+        scale_base = 1.0
+        scale_spline = 1.0
+        base_activation = torch.nn.SiLU
+        grid_eps = 0.02
+        grid_range = [-1, 1]
 
         if not no_kan:
             self.fc1 = KANLinear(
-                        in_features,
-                        hidden_features,
-                        grid_size=grid_size,
-                        spline_order=spline_order,
-                        scale_noise=scale_noise,
-                        scale_base=scale_base,
-                        scale_spline=scale_spline,
-                        base_activation=base_activation,
-                        grid_eps=grid_eps,
-                        grid_range=grid_range,
-                    )
+                in_features,
+                hidden_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
             self.fc2 = KANLinear(
-                        hidden_features,
-                        out_features,
-                        grid_size=grid_size,
-                        spline_order=spline_order,
-                        scale_noise=scale_noise,
-                        scale_base=scale_base,
-                        scale_spline=scale_spline,
-                        base_activation=base_activation,
-                        grid_eps=grid_eps,
-                        grid_range=grid_range,
-                    )
+                hidden_features,
+                out_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
             self.fc3 = KANLinear(
-                        hidden_features,
-                        out_features,
-                        grid_size=grid_size,
-                        spline_order=spline_order,
-                        scale_noise=scale_noise,
-                        scale_base=scale_base,
-                        scale_spline=scale_spline,
-                        base_activation=base_activation,
-                        grid_eps=grid_eps,
-                        grid_range=grid_range,
-                    )
-            # # TODO   
+                hidden_features,
+                out_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
+            # # TODO
             # self.fc4 = KANLinear(
             #             hidden_features,
             #             out_features,
@@ -75,7 +83,7 @@ class KANLayer(nn.Module):
             #             base_activation=base_activation,
             #             grid_eps=grid_eps,
             #             grid_range=grid_range,
-            #         )   
+            #         )
 
         else:
             self.fc1 = nn.Linear(in_features, hidden_features)
@@ -85,21 +93,20 @@ class KANLayer(nn.Module):
         # TODO
         # self.fc1 = nn.Linear(in_features, hidden_features)
 
-
         self.dwconv_1 = DW_bn_relu(hidden_features)
         self.dwconv_2 = DW_bn_relu(hidden_features)
         self.dwconv_3 = DW_bn_relu(hidden_features)
 
         # # TODO
         # self.dwconv_4 = DW_bn_relu(hidden_features)
-    
+
         self.drop = nn.Dropout(drop)
 
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -111,43 +118,57 @@ class KANLayer(nn.Module):
             m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
             if m.bias is not None:
                 m.bias.data.zero_()
-    
 
     def forward(self, x, H, W):
         # pdb.set_trace()
         B, N, C = x.shape
 
-        x = self.fc1(x.reshape(B*N,C))
-        x = x.reshape(B,N,C).contiguous()
+        x = self.fc1(x.reshape(B * N, C))
+        x = x.reshape(B, N, C).contiguous()
         x = self.dwconv_1(x, H, W)
-        x = self.fc2(x.reshape(B*N,C))
-        x = x.reshape(B,N,C).contiguous()
+        x = self.fc2(x.reshape(B * N, C))
+        x = x.reshape(B, N, C).contiguous()
         x = self.dwconv_2(x, H, W)
-        x = self.fc3(x.reshape(B*N,C))
-        x = x.reshape(B,N,C).contiguous()
+        x = self.fc3(x.reshape(B * N, C))
+        x = x.reshape(B, N, C).contiguous()
         x = self.dwconv_3(x, H, W)
 
         # # TODO
         # x = x.reshape(B,N,C).contiguous()
         # x = self.dwconv_4(x, H, W)
-    
+
         return x
 
+
 class KANBlock(nn.Module):
-    def __init__(self, dim, drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, no_kan=False):
+    def __init__(
+        self,
+        dim,
+        drop=0.0,
+        drop_path=0.0,
+        act_layer=nn.GELU,
+        norm_layer=nn.LayerNorm,
+        no_kan=False,
+    ):
         super().__init__()
 
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim)
 
-        self.layer = KANLayer(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop, no_kan=no_kan)
+        self.layer = KANLayer(
+            in_features=dim,
+            hidden_features=mlp_hidden_dim,
+            act_layer=act_layer,
+            drop=drop,
+            no_kan=no_kan,
+        )
 
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -179,6 +200,7 @@ class DWConv(nn.Module):
 
         return x
 
+
 class DW_bn_relu(nn.Module):
     def __init__(self, dim=768):
         super(DW_bn_relu, self).__init__()
@@ -196,9 +218,9 @@ class DW_bn_relu(nn.Module):
 
         return x
 
+
 class PatchEmbed(nn.Module):
-    """ Image to Patch Embedding
-    """
+    """Image to Patch Embedding"""
 
     def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
         super().__init__()
@@ -209,15 +231,20 @@ class PatchEmbed(nn.Module):
         self.patch_size = patch_size
         self.H, self.W = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
         self.num_patches = self.H * self.W
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
-                              padding=(patch_size[0] // 2, patch_size[1] // 2))
+        self.proj = nn.Conv2d(
+            in_chans,
+            embed_dim,
+            kernel_size=patch_size,
+            stride=stride,
+            padding=(patch_size[0] // 2, patch_size[1] // 2),
+        )
         self.norm = nn.LayerNorm(embed_dim)
 
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -248,11 +275,12 @@ class ConvLayer(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(out_ch, out_ch, 3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, input):
         return self.conv(input)
+
 
 class D_ConvLayer(nn.Module):
     def __init__(self, in_ch, out_ch):
@@ -263,31 +291,47 @@ class D_ConvLayer(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_ch, out_ch, 3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, input):
         return self.conv(input)
 
-def make_input_divisible(x: torch.Tensor, divisor = 8) -> torch.Tensor:
-        """Pad some pixels to make the input size divisible by the patch size = 8."""
-        B, _, H_0, W_0 = x.shape
-        pad_w = (divisor - W_0 % divisor) % divisor
-        pad_h = (divisor - H_0 % divisor) % divisor
 
-        x = nn.functional.pad(x, (0, pad_w, 0, pad_h), value=0)
-        return x
+def make_input_divisible(x: torch.Tensor, divisor=8) -> torch.Tensor:
+    """Pad some pixels to make the input size divisible by the patch size = 8."""
+    B, _, H_0, W_0 = x.shape
+    pad_w = (divisor - W_0 % divisor) % divisor
+    pad_h = (divisor - H_0 % divisor) % divisor
+
+    x = nn.functional.pad(x, (0, pad_w, 0, pad_h), value=0)
+    return x
+
 
 class UKAN(nn.Module):
-    def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, embed_dims=[256, 320, 512], no_kan=False,
-    drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, depths=[1, 1, 1], **kwargs):
+    def __init__(
+        self,
+        num_classes,
+        input_channels=3,
+        deep_supervision=False,
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dims=[256, 320, 512],
+        no_kan=False,
+        drop_rate=0.0,
+        drop_path_rate=0.0,
+        norm_layer=nn.LayerNorm,
+        depths=[1, 1, 1],
+        **kwargs,
+    ):
         super().__init__()
 
         kan_input_dim = embed_dims[0]
 
-        self.encoder1 = ConvLayer(3, kan_input_dim//8)  
-        self.encoder2 = ConvLayer(kan_input_dim//8, kan_input_dim//4)  
-        self.encoder3 = ConvLayer(kan_input_dim//4, kan_input_dim)
+        self.encoder1 = ConvLayer(3, kan_input_dim // 8)
+        self.encoder2 = ConvLayer(kan_input_dim // 8, kan_input_dim // 4)
+        self.encoder3 = ConvLayer(kan_input_dim // 4, kan_input_dim)
 
         self.norm3 = norm_layer(embed_dims[1])
         self.norm4 = norm_layer(embed_dims[2])
@@ -297,59 +341,97 @@ class UKAN(nn.Module):
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
 
-        self.block1 = nn.ModuleList([KANBlock(
-            dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
-            )])
+        self.block1 = nn.ModuleList(
+            [
+                KANBlock(
+                    dim=embed_dims[1],
+                    drop=drop_rate,
+                    drop_path=dpr[0],
+                    norm_layer=norm_layer,
+                )
+            ]
+        )
 
-        self.block2 = nn.ModuleList([KANBlock(
-            dim=embed_dims[2],
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
-            )])
+        self.block2 = nn.ModuleList(
+            [
+                KANBlock(
+                    dim=embed_dims[2],
+                    drop=drop_rate,
+                    drop_path=dpr[1],
+                    norm_layer=norm_layer,
+                )
+            ]
+        )
 
-        self.dblock1 = nn.ModuleList([KANBlock(
-            dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
-            )])
+        self.dblock1 = nn.ModuleList(
+            [
+                KANBlock(
+                    dim=embed_dims[1],
+                    drop=drop_rate,
+                    drop_path=dpr[0],
+                    norm_layer=norm_layer,
+                )
+            ]
+        )
 
-        self.dblock2 = nn.ModuleList([KANBlock(
-            dim=embed_dims[0], 
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
-            )])
+        self.dblock2 = nn.ModuleList(
+            [
+                KANBlock(
+                    dim=embed_dims[0],
+                    drop=drop_rate,
+                    drop_path=dpr[1],
+                    norm_layer=norm_layer,
+                )
+            ]
+        )
 
-        self.patch_embed3 = PatchEmbed(img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1])
-        self.patch_embed4 = PatchEmbed(img_size=img_size // 8, patch_size=3, stride=2, in_chans=embed_dims[1], embed_dim=embed_dims[2])
+        self.patch_embed3 = PatchEmbed(
+            img_size=img_size // 4,
+            patch_size=3,
+            stride=2,
+            in_chans=embed_dims[0],
+            embed_dim=embed_dims[1],
+        )
+        self.patch_embed4 = PatchEmbed(
+            img_size=img_size // 8,
+            patch_size=3,
+            stride=2,
+            in_chans=embed_dims[1],
+            embed_dim=embed_dims[2],
+        )
 
-        self.decoder1 = D_ConvLayer(embed_dims[2], embed_dims[1])  
-        self.decoder2 = D_ConvLayer(embed_dims[1], embed_dims[0])  
-        self.decoder3 = D_ConvLayer(embed_dims[0], embed_dims[0]//4) 
-        self.decoder4 = D_ConvLayer(embed_dims[0]//4, embed_dims[0]//8)
-        self.decoder5 = D_ConvLayer(embed_dims[0]//8, embed_dims[0]//8)
+        self.decoder1 = D_ConvLayer(embed_dims[2], embed_dims[1])
+        self.decoder2 = D_ConvLayer(embed_dims[1], embed_dims[0])
+        self.decoder3 = D_ConvLayer(embed_dims[0], embed_dims[0] // 4)
+        self.decoder4 = D_ConvLayer(embed_dims[0] // 4, embed_dims[0] // 8)
+        self.decoder5 = D_ConvLayer(embed_dims[0] // 8, embed_dims[0] // 8)
 
-        self.peekaboo = nn.Conv2d(embed_dims[0]//8, embed_dims[0]//8, kernel_size=4, stride=4)
+        self.peekaboo = nn.Conv2d(
+            embed_dims[0] // 8, embed_dims[0] // 8, kernel_size=4, stride=4
+        )
         self.head = nn.Conv2d(32, 1, kernel_size=1)
-        self.final = nn.Conv2d(embed_dims[0]//8, num_classes, kernel_size=1)
-        self.soft = nn.Softmax(dim =1)
+        self.final = nn.Conv2d(embed_dims[0] // 8, num_classes, kernel_size=1)
+        self.soft = nn.Softmax(dim=1)
 
     def forward(self, x, for_eval=False):
         # pdb.set_trace()
         B = x.shape[0]
         x = make_input_divisible(x)
-        ### Encoder
-        ### Conv Stage
+        # Encoder
+        # Conv Stage
 
-        ### Stage 1
+        # Stage 1
         out = F.relu(F.max_pool2d(self.encoder1(x), 2, 2))
         t1 = out
-        ### Stage 2
+        # Stage 2
         out = F.relu(F.max_pool2d(self.encoder2(out), 2, 2))
         t2 = out
-        ### Stage 3
+        # Stage 3
         out = F.relu(F.max_pool2d(self.encoder3(out), 2, 2))
         t3 = out
 
-        ### Tokenized KAN Stage
-        ### Stage 4
+        # Tokenized KAN Stage
+        # Stage 4
 
         out, H, W = self.patch_embed3(out)
         for i, blk in enumerate(self.block1):
@@ -358,7 +440,7 @@ class UKAN(nn.Module):
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         t4 = out
 
-        ### Bottleneck
+        # Bottleneck
 
         out, H, W = self.patch_embed4(out)
         for i, blk in enumerate(self.block2):
@@ -366,53 +448,88 @@ class UKAN(nn.Module):
         out = self.norm4(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
 
-        ### Decoder
-        ### Stage 4
-        out = F.relu(F.interpolate(self.decoder1(out), size=t4.shape[2:], mode='bilinear', align_corners=False))
+        # Decoder
+        # Stage 4
+        out = F.relu(
+            F.interpolate(
+                self.decoder1(out),
+                size=t4.shape[2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        )
         out = torch.add(out, t4)
         _, _, H, W = out.shape
-        out = out.flatten(2).transpose(1,2)
+        out = out.flatten(2).transpose(1, 2)
         for i, blk in enumerate(self.dblock1):
             out = blk(out, H, W)
 
-        ### Stage 3
+        # Stage 3
         out = self.dnorm3(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-        out = F.relu(F.interpolate(self.decoder2(out), size=t3.shape[2:], mode='bilinear', align_corners=False))
-        out = torch.add(out,t3)
-        _,_,H,W = out.shape
-        out = out.flatten(2).transpose(1,2)
-        
+        out = F.relu(
+            F.interpolate(
+                self.decoder2(out),
+                size=t3.shape[2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        )
+        out = torch.add(out, t3)
+        _, _, H, W = out.shape
+        out = out.flatten(2).transpose(1, 2)
+
         for i, blk in enumerate(self.dblock2):
             out = blk(out, H, W)
 
         out = self.dnorm4(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-        
-        ### Stage 2
-        out = F.relu(F.interpolate(self.decoder3(out), size=t2.shape[2:], mode='bilinear', align_corners=False))
-        out = torch.add(out,t2)
 
-        ### Stage 1
-        out = F.relu(F.interpolate(self.decoder4(out), size=t1.shape[2:], mode='bilinear', align_corners=False))
-        out = torch.add(out,t1) 
+        # Stage 2
+        out = F.relu(
+            F.interpolate(
+                self.decoder3(out),
+                size=t2.shape[2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        )
+        out = torch.add(out, t2)
 
-        out = F.relu(F.interpolate(self.decoder5(out),scale_factor=(1,1),mode ='bilinear', align_corners=False))
+        # Stage 1
+        out = F.relu(
+            F.interpolate(
+                self.decoder4(out),
+                size=t1.shape[2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        )
+        out = torch.add(out, t1)
+
+        out = F.relu(
+            F.interpolate(
+                self.decoder5(out),
+                scale_factor=(1, 1),
+                mode="bilinear",
+                align_corners=False,
+            )
+        )
         out = F.relu(self.peekaboo(out))
 
         return self.head(out)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """
     Sample Inputs:
     in: 1,3,427, 640 out exp: 1, 1, 54, 80
     in: 1, 3, 480, 640 out exp: 1, 1, 60, 80
     """
     img = torch.randn(1, 3, 427, 640)
-    
+
     model = UKAN(num_classes=1)
-    
+
     all_params = sum(p.numel() for p in model.parameters())
     print(f"Total number of parameters: {all_params}")
 

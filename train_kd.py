@@ -12,14 +12,22 @@ import argparse
 import torch
 import torch.nn as nn
 import torchvision
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from model import PeekabooModel
 from evaluation.saliency import evaluate_saliency
-from misc import batch_apply_bilateral_solver, set_seed, load_config, Logger
+from misc import (
+    batch_apply_bilateral_solver,
+    set_seed,
+    load_config,
+    Logger,
+    DistillationLoss,
+)
 
 from datasets.datasets import build_dataset
 from ukan import UKAN
+
 
 def get_argparser():
     parser = argparse.ArgumentParser(
@@ -88,23 +96,30 @@ def train_model(
     #                      Setup loss, optimizer and scheduler                     #
     #                                                                              #
     ################################################################################
-    
+
     criterion = nn.BCEWithLogitsLoss()
-    criterion_mse = nn.MSELoss()
-    criterion_kldiv = nn.KLDivLoss(reduction='batchmean')
+    distillation_loss_fn = DistillationLoss(temperature=2.0, alpha=0.5)
 
     param_groups = []
-
     for name, param in student_model.named_parameters():
         # print(name, "=>", param.shape)
-        if 'layer' in name.lower() and 'fc' in name.lower(): # higher lr for kan layers
-            param_groups.append({'params': param, 'lr': 1e-2, 'weight_decay': 1e-4}) 
+        if "layer" in name.lower() and "fc" in name.lower():  # higher lr for kan layers
+            param_groups.append({"params": param, "lr": 1e-2, "weight_decay": 1e-4})
         else:
-            param_groups.append({'params': param, 'lr': 1e-4, 'weight_decay': 1e-4})
+            param_groups.append({"params": param, "lr": 1e-4, "weight_decay": 1e-4})
 
     optimizer = torch.optim.Adam(param_groups)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=config.training['nb_epochs'], eta_min=1e-5)
+        optimizer, T_max=config.training["nb_epochs"], eta_min=1e-5
+    )
+
+    # Peekaboo
+    # optimizer = torch.optim.AdamW(model.decoder.parameters(), lr=config.training["lr0"])
+    # scheduler = torch.optim.lr_scheduler.StepLR(
+    #     optimizer,
+    #     step_size=config.training["step_lr_size"],
+    #     gamma=config.training["step_lr_gamma"],
+    # )
 
     ################################################################################
     #                                                                              #
@@ -130,17 +145,6 @@ def train_model(
 
             # Get the inputs
             inputs, masked_inputs, _, input_nonorm, masked_input_nonorm, _, _ = data
-
-            ######## For debug #######
-            # def to_img(ten):
-            #     #ten =(input_nonorm[0].permute(1,2,0).detach().cpu().numpy()+1)/2
-            #     ten =(ten.permute(1,2,0).detach().cpu().numpy())
-            #     ten=(ten*255).astype(np.uint8)
-            #     #ten=cv2.cvtColor(ten,cv2.COLOR_RGB2BGR)
-            #     return ten
-            # import pdb; pdb.set_trace()
-            # im = to_img(input_nonorm[0])
-            # plt.imshow(im); plt.show()
 
             # Inputs and masked inputs
             inputs = inputs.to("cuda")
@@ -176,97 +180,27 @@ def train_model(
             # Binarization
             teacher_preds_mask = (sigmoid(teacher_preds.detach()) > 0.5).float()
             # Apply bilateral solver
-            teacher_preds_mask_bs, _ = batch_apply_bilateral_solver(data, teacher_preds_mask.detach())
+            teacher_preds_mask_bs, _ = batch_apply_bilateral_solver(
+                data, teacher_preds_mask.detach()
+            )
             # Flatten
             flat_teacher_preds = teacher_preds.permute(0, 2, 3, 1).reshape(-1, 1)
 
-
-            #### Compute hard loss ####
-            alpha = 1.0
-            loss_hard = alpha * criterion(
-                flat_preds, flat_teacher_preds
-            )
-            print(loss_hard)
-            writer.add_scalar("Loss/L_seg", loss_hard, n_iter)
-            loss = loss_hard
-
-            #### Compute soft loss ####
-
-            beta = 1.0
-            loss_soft = beta * criterion_mse(
-                preds_mask_bs.reshape(-1).float()[:, None],
+            #### Compute loss ####
+            dist_loss = distillation_loss_fn(
+                flat_preds,
+                flat_teacher_preds,
                 teacher_preds_mask_bs.reshape(-1).float()[:, None],
             )
-            writer.add_scalar("Loss/L_pk", loss_soft, n_iter)
-            loss += loss_soft
+            loss = dist_loss
+            writer.add_scalar("Loss/L_dist", dist_loss, n_iter)
 
-            # ################################################################################
-            # #                                                                              #
-            # #                                Unsupervised Segmenter                        #
-            # #                                                                              #
-            # ################################################################################
+            #### Compute loss between soft masks and their binarized versions ####
+            self_loss = criterion(
+                flat_preds, teacher_preds_mask.reshape(-1).float()[:, None]
+            )
 
-            # # Get predictions
-            # preds = model(inputs)
-            # # Binarization
-            # preds_mask = (sigmoid(preds.detach()) > 0.5).float()
-            # # Apply bilateral solver
-            # preds_mask_bs, _ = batch_apply_bilateral_solver(data, preds_mask.detach())
-            # # Flatten
-            # flat_preds = preds.permute(0, 2, 3, 1).reshape(-1, 1)
-
-            # #### Compute unsupervised segmenter loss ####
-            # alpha = 1.5
-            # preds_bs_loss = alpha * criterion(
-            #     flat_preds, preds_mask_bs.reshape(-1).float()[:, None]
-            # )
-            # print(preds_bs_loss)
-            # writer.add_scalar("Loss/L_seg", preds_bs_loss, n_iter)
-            # loss = preds_bs_loss
-
-            # ################################################################################
-            # #                                                                              #
-            # #                            Masked Feature Predictor (MFP)                    #
-            # #                                                                              #
-            # ################################################################################
-
-            # # Get predictions
-            # preds_mfp = model(masked_inputs)
-            # # Binarization
-            # preds_mask_mfp = (sigmoid(preds_mfp.detach()) > 0.5).float()
-            # # Apply bilateral solver
-            # preds_mask_mfp_bs, _ = batch_apply_bilateral_solver(
-            #     data, preds_mask_mfp.detach()
-            # )
-            # # Flatten
-            # flat_preds_mfp = preds_mfp.permute(0, 2, 3, 1).reshape(-1, 1)
-
-            # #### Compute masked feature predictor loss ####
-            # beta = 1.0
-            # preds_bs_cb_loss = beta * criterion(
-            #     flat_preds_mfp, preds_mask_mfp_bs.reshape(-1).float()[:, None]
-            # )
-            # writer.add_scalar("Loss/L_mfp", preds_bs_cb_loss, n_iter)
-            # loss += preds_bs_cb_loss
-
-            # ################################################################################
-            # #                                                                              #
-            # #                       Predictor Consistency Loss (PCL)                       #
-            # #                                                                              #
-            # ################################################################################
-
-            # gamma = 1.0
-            # task_sim_loss = gamma * criterion_mse(
-            #     preds_mask_bs.reshape(-1).float()[:, None],
-            #     preds_mask_mfp_bs.reshape(-1).float()[:, None],
-            # )
-            # writer.add_scalar("Loss/L_pcl", task_sim_loss, n_iter)
-            # loss += task_sim_loss
-
-            ### Compute loss between soft masks and their binarized versions ####
-            self_loss = criterion(flat_preds, preds_mask.reshape(-1).float()[:, None])
-
-            self_loss = self_loss * 4.0
+            self_loss = self_loss * 2
             loss += self_loss
             writer.add_scalar("Loss/L_regularization", self_loss, n_iter)
 
@@ -316,7 +250,7 @@ def train_model(
             # Save model
             if n_iter % save_model_freq == 0 and n_iter > 0:
                 # model.decoder_save_weights(save_dir, n_iter)
-                torch.save(student_model.state_dict(), f'{save_dir}/model.pth')
+                torch.save(student_model.state_dict(), f"{save_dir}/model.pth")
 
             # Evaluation
             if n_iter % config.evaluation["freq"] == 0 and n_iter > 0:
@@ -333,7 +267,7 @@ def train_model(
 
             if n_iter == config.training["max_iter"]:
                 # model.decoder_save_weights(save_dir, n_iter)
-                torch.save(student_model.state_dict(), f'{save_dir}/model.pth')
+                torch.save(student_model.state_dict(), f"{save_dir}/model.pth")
                 print("\n----" "\nTraining done.")
                 writer.close()
                 return student_model
@@ -344,7 +278,7 @@ def train_model(
 
     # Save model
     # model.decoder_save_weights(save_dir, n_iter)
-    torch.save(student_model.state_dict(), f'{save_dir}/model.pth')
+    torch.save(student_model.state_dict(), f"{save_dir}/model.pth")
     print("\n----" "\nTraining done.")
     writer.close()
     return student_model
@@ -420,8 +354,11 @@ def main():
         enc_type_feats=config.peekaboo["feats"],
     )
     # Load weights
-    teacher_model.decoder_load_weights("data/weights/peekaboo_decoder_weights_niter500.pt")
+    teacher_model.decoder_load_weights(
+        "data/weights/peekaboo_decoder_weights_niter500.pt"
+    )
     teacher_model.eval()
+    teacher_model.to("cuda")
 
     ########## Define UKAN Student ##########
 

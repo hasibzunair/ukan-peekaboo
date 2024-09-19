@@ -31,6 +31,7 @@ import scipy.ndimage
 import numpy as np
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 from typing import List
@@ -63,6 +64,33 @@ def mkdir_if_missing(directory):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
+
+
+class DistillationLoss(nn.Module):
+    def __init__(self, temperature=1.0, alpha=0.5):
+        super(DistillationLoss, self).__init__()
+        self.temperature = temperature
+        self.alpha = alpha
+        self.kl_div = nn.KLDivLoss(reduction="batchmean")
+        self.ce_loss = nn.BCEWithLogitsLoss()
+
+    def forward(self, student_output, teacher_output, target):
+        # Cross-entropy loss with the ground truth
+        ce_loss = self.ce_loss(student_output, target)
+
+        # Soft targets (teacher outputs) with temperature scaling
+        student_output = nn.functional.log_softmax(
+            student_output / self.temperature, dim=1
+        )
+        teacher_output = nn.functional.softmax(teacher_output / self.temperature, dim=1)
+
+        # KL divergence between student and teacher outputs
+        distill_loss = self.kl_div(student_output, teacher_output) * (
+            self.temperature**2
+        )
+
+        # Combined loss (weighted sum of cross-entropy and distillation loss)
+        return self.alpha * ce_loss + (1.0 - self.alpha) * distill_loss
 
 
 class Logger(object):

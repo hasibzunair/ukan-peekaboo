@@ -165,7 +165,7 @@ def evaluate_saliency(
         h, w = gt_labels.shape[-2:]
         preds_up = F.interpolate(
             preds,
-            scale_factor=model.vit_patch_size,
+            scale_factor=8,  # model.vit_patch_size
             mode="bilinear",
             align_corners=False,
         )[..., :h, :w]
