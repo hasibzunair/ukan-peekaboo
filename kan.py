@@ -2,6 +2,8 @@ import torch
 import torch.nn.functional as F
 import math
 
+"""Code for KAN"""
+
 
 class KANLinear(torch.nn.Module):
     def __init__(
