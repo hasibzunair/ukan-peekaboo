@@ -79,7 +79,7 @@ Finally, download the masks of random streaks and holes of arbitrary shapes from
 ```bash
 export DATASET_DIR=datasets_local # root directory training and evaluation datasets
 
-python train.py --exp-name peekaboo --dataset-dir $DATASET_DIR
+python train_kd.py --exp-name kd --dataset-dir $DATASET_DIR
 ```
 
 See logs in `outputs/peekaboo-DUTS-TR-vit_small8` folder and also see tensorboard logs by running: `tensorboard --logdir=outputs`.
