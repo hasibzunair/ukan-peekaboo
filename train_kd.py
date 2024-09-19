@@ -196,13 +196,13 @@ def train_model(
             writer.add_scalar("Loss/L_dist", dist_loss, n_iter)
 
             #### Compute loss between soft masks of student and teachers binarized versions ####
-            self_loss = criterion(
-                flat_preds, teacher_preds_mask.reshape(-1).float()[:, None]
-            )
+            # self_loss = criterion(
+            #     flat_preds, teacher_preds_mask.reshape(-1).float()[:, None]
+            # )
 
-            self_loss = self_loss * 2
-            loss += self_loss
-            writer.add_scalar("Loss/L_regularization", self_loss, n_iter)
+            # self_loss = self_loss * 2.0
+            # loss += self_loss
+            # writer.add_scalar("Loss/L_regularization", self_loss, n_iter)
 
             ################################################################################
             #                                                                              #
