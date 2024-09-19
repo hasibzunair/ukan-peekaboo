@@ -1,8 +1,8 @@
-# Code for Peekaboo
+# Code for UKAN Peekaboo
 # Author: Hasib Zunair
 # Modified from https://github.com/valeoai/FOUND
 
-"""Training code for Peekaboo"""
+"""Training code for UKAN with Peekaboo via Knowledge distillation"""
 
 import os
 import sys
@@ -231,11 +231,6 @@ def train_model(
                 p_grid = torchvision.utils.make_grid(preds_mask[:5])
                 writer.add_image("training/preds", p_grid, n_iter)
 
-                # # masked images and predictions
-                # m_grid = torchvision.utils.make_grid(masked_input_nonorm[:5])
-                # writer.add_image("training/masked_images", m_grid, n_iter)
-                # mp_grid = torchvision.utils.make_grid(preds_mask_mfp[:5])
-                # writer.add_image("training/masked_preds", mp_grid, n_iter)
             # Statistics
             running_loss += loss.item()
             tbar.set_description(
